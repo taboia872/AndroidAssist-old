@@ -39,8 +39,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.satory.graphenosai.llm.LocalModelManager
 import com.satory.graphenosai.service.AssistantService
@@ -85,6 +87,7 @@ class CompactAssistantActivity : ComponentActivity() {
                 if (service != null) {
                     val state by service!!.assistantState.collectAsStateWithLifecycle()
                     val response by service!!.response.collectAsStateWithLifecycle()
+                    val reasoning by service!!.reasoning.collectAsStateWithLifecycle()
                     val messages by service!!.chatMessages.collectAsStateWithLifecycle()
                     val transcription by service!!.transcription.collectAsStateWithLifecycle()
                     val pendingUrls by service!!.pendingUrls.collectAsStateWithLifecycle()
@@ -130,6 +133,7 @@ class CompactAssistantActivity : ComponentActivity() {
                                     service = service!!,
                                     state = state,
                                     response = response,
+                                    reasoning = reasoning,
                                     transcription = transcription,
                                     messages = messages,
                                     webSearchEnabled = webSearchEnabled,
@@ -145,6 +149,7 @@ class CompactAssistantActivity : ComponentActivity() {
                                     state = state,
                                     transcription = transcription,
                                     response = response,
+                                    reasoning = reasoning,
                                     onExpand = { isExpanded = true },
                                     onDismiss = { finish() }
                                 )
@@ -180,6 +185,7 @@ fun CompactAssistantView(
     state: AssistantState,
     transcription: String,
     response: String,
+    reasoning: String = "",
     onExpand: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -282,6 +288,13 @@ fun CompactAssistantView(
         else -> ""
     }
 
+    // Reasoning is only displayed while the model is still generating; once the
+    // final answer starts (or completes), thinking text is no longer shown.
+    val displayReasoning = when {
+        reasoning.isNotEmpty() && displayResponse.isEmpty() -> reasoning
+        else -> ""
+    }
+
     val statusText = when (state) {
         is AssistantState.Listening -> if (transcription.isEmpty()) "Listening..." else ""
         is AssistantState.Processing -> {
@@ -374,7 +387,7 @@ fun CompactAssistantView(
                     }
                 }
 
-                if (displayTranscription.isNotEmpty() || displayResponse.isNotEmpty() || statusText.isNotEmpty()) {
+                if (displayTranscription.isNotEmpty() || displayResponse.isNotEmpty() || statusText.isNotEmpty() || displayReasoning.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Column(
@@ -392,6 +405,21 @@ fun CompactAssistantView(
                                 displayTranscription,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.primary
+                            )
+                            if (displayResponse.isNotEmpty() || displayReasoning.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
+                        }
+
+                        // Model reasoning (thinking models) — shown while generating, before the answer
+                        if (displayReasoning.isNotEmpty() && state !is AssistantState.Error) {
+                            Text(
+                                displayReasoning,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontStyle = FontStyle.Italic,
+                                    lineHeight = 16.sp
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )
                             if (displayResponse.isNotEmpty()) {
                                 Spacer(modifier = Modifier.height(8.dp))
@@ -631,6 +659,7 @@ fun FullChatScreen(
     service: AssistantService,
     state: AssistantState,
     response: String,
+    reasoning: String = "",
     transcription: String,
     messages: List<com.satory.graphenosai.llm.ChatSession.Message>,
     webSearchEnabled: Boolean,
@@ -1195,6 +1224,12 @@ fun FullChatScreen(
                         }
                     }
                 }
+            }
+
+            // Model reasoning streamed by thinking models, before the answer starts
+            if (reasoning.isNotEmpty() && response.isEmpty() &&
+                (state is AssistantState.Processing || state is AssistantState.Responding)) {
+                MessageBubble(isUser = false, content = reasoning, isStreaming = true)
             }
 
             if (response.isNotEmpty() && state is AssistantState.Responding) {

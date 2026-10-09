@@ -85,6 +85,11 @@ class AssistantService : Service() {
 
     private val _response = MutableStateFlow("")
     val response: StateFlow<String> = _response.asStateFlow()
+
+    // Reasoning tokens streamed by thinking models (never mixed into the response
+    // shown as the assistant answer, saved history, or TTS input)
+    private val _reasoning = MutableStateFlow("")
+    val reasoning: StateFlow<String> = _reasoning.asStateFlow()
     
     // Chat session messages for UI
     private val _chatMessages = MutableStateFlow<List<ChatSession.Message>>(emptyList())
@@ -811,6 +816,7 @@ class AssistantService : Service() {
     private suspend fun processWithDirectSearch(query: String) {
         _assistantState.value = AssistantState.Searching
         _response.value = ""
+        _reasoning.value = ""
 
         val searchResults = executeSearch(query)
         val contextSources = searchResults.map { it.url }
@@ -836,6 +842,7 @@ class AssistantService : Service() {
     private suspend fun processWithFunctionCalling(imageBase64: String? = null) {
         _assistantState.value = AssistantState.Responding
         _response.value = ""
+        _reasoning.value = ""
 
         val fullResponse = StringBuilder()
         val tools = WebSearchTool.buildToolsArray()
@@ -855,6 +862,9 @@ class AssistantService : Service() {
                     is StreamEvent.Content -> {
                         fullResponse.append(event.text)
                         _response.value = fullResponse.toString()
+                    }
+                    is StreamEvent.Reasoning -> {
+                        _reasoning.value += event.text
                     }
                     is StreamEvent.ToolCallsDetected -> {
                         detectedCalls = event.calls
@@ -1020,6 +1030,7 @@ class AssistantService : Service() {
      */
     private suspend fun streamDirect(query: String, imageBase64: String? = null) {
         _response.value = ""
+        _reasoning.value = ""
 
         val fullResponse = StringBuilder()
         val useLocal = settingsManager.apiProvider == SettingsManager.PROVIDER_LOCAL

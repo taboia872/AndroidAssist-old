@@ -513,6 +513,19 @@ class OpenRouterClient(
                                         responseBuilder.append(contentObj)
                                         emit(StreamEvent.Content(contentObj))
                                     }
+
+                                    // Reasoning tokens (OpenAI-compatible "reasoning_content",
+                                    // used by DeepSeek-R1-style models on OpenRouter)
+                                    val reasoningObj = delta.opt("reasoning_content")
+                                    if (reasoningObj is String && reasoningObj.isNotEmpty()) {
+                                        emit(StreamEvent.Reasoning(reasoningObj))
+                                    }
+
+                                    // Some providers put reasoning under "reasoning" instead
+                                    val reasoningAltObj = delta.opt("reasoning")
+                                    if (reasoningAltObj is String && reasoningAltObj.isNotEmpty()) {
+                                        emit(StreamEvent.Reasoning(reasoningAltObj))
+                                    }
                                 }
 
                                 // Parse tool_calls from delta

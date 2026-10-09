@@ -136,5 +136,6 @@ fun buildToolResultMessage(toolCallId: String, content: String): JSONObject {
 
 sealed class StreamEvent {
     data class Content(val text: String) : StreamEvent()
+    data class Reasoning(val text: String) : StreamEvent()
     data class ToolCallsDetected(val assistantMessage: JSONObject, val calls: List<ToolCall>) : StreamEvent()
 }
