@@ -8,9 +8,6 @@
 .externalNativeBuild
 .cxx
 local.properties
-
-# Additional patterns
-gradle.properties
 *.apk
 *.ap_
 *.dex
