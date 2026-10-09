@@ -189,6 +189,12 @@ class AssistantService : Service() {
         super.onCreate()
         Log.i(TAG, "AssistantService created")
         
+        // Warm the live model catalog so isVisionCapable() and the model
+        // picker have real data without blocking startup
+        serviceScope.launch {
+            ModelCatalog.fetch()
+        }
+
         val app = application as AssistantApplication
         
         audioCaptureManager = AudioCaptureManager(this)

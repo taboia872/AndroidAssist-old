@@ -75,7 +75,13 @@ class OpenRouterClient(
         currentSystemPrompt = prompt
     }
     
-    fun isVisionCapable(): Boolean = currentModel in VISION_MODELS
+    fun isVisionCapable(): Boolean {
+        // Live catalog knows the real modality; fall back to the legacy list
+        ModelCatalog.cached()?.let { catalog ->
+            catalog.find { it.id == currentModel }?.let { return it.supportsVision }
+        }
+        return currentModel in VISION_MODELS
+    }
     
     fun clearSession() {
         chatSession.clear()

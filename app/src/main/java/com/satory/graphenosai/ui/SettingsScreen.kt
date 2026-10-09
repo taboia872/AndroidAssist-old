@@ -42,6 +42,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.satory.graphenosai.AssistantApplication
 import com.satory.graphenosai.audio.VoskTranscriber
 import com.satory.graphenosai.llm.LocalModelManager
+import com.satory.graphenosai.llm.ModelCatalog
 import com.satory.graphenosai.service.AssistantService
 import com.satory.graphenosai.tts.TTSManager
 import com.satory.graphenosai.BuildConfig
@@ -1318,6 +1319,14 @@ fun ModelSelectionDialog(
 ) {
     var showCustomInput by remember { mutableStateOf(false) }
 
+    // Live catalog from OpenRouter (falls back to the bundled curated list
+    // when offline or if the endpoint fails)
+    var catalogModels by remember { mutableStateOf<List<SettingsManager.ModelInfo>?>(null) }
+    LaunchedEffect(Unit) {
+        catalogModels = ModelCatalog.fetch()
+    }
+    val displayModels = catalogModels ?: models
+
     if (showCustomInput) {
         CustomModelDialog(
             currentCustomModel = customModelId,
@@ -1353,7 +1362,7 @@ fun ModelSelectionDialog(
                 )
 
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    val freeModels = models.filter { it.id.contains(":free") }
+                    val freeModels = displayModels.filter { it.id.contains(":free") || it.description.startsWith("Free") }
                     if (freeModels.isNotEmpty()) {
                         item {
                                 Text(
@@ -1368,7 +1377,7 @@ fun ModelSelectionDialog(
                             }
                         }
 
-                        val premiumModels = models.filter { !it.id.contains(":free") }
+                        val premiumModels = displayModels.filter { !(it.id.contains(":free") || it.description.startsWith("Free")) }
                         if (premiumModels.isNotEmpty()) {
                             item {
                                 Text(
