@@ -4,6 +4,7 @@ import android.util.Log
 import com.satory.graphenosai.security.SecureKeyManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
@@ -81,35 +82,25 @@ class OpenRouterClient(
     }
 
     /**
-     * Stream completion WITHOUT adding user message (already added externally).
-     * Used when user message was already added to chatSession.
+     * Shared SSE streaming loop for plain-text completions: sends the request,
+     * reads `data:` lines, emits content deltas and - on success - appends the
+     * full response to the chat session when addToSession is set.
+     * Replaces the five previously duplicated copy-pasted loops.
      */
-    fun streamCompletion(
-        userQuery: String,
-        imageBase64: String? = null
+    private fun streamSse(
+        requestBody: String,
+        apiKey: String,
+        addToSession: Boolean
     ): Flow<String> = flow {
-        val apiKey = keyManager.getOpenRouterApiKey()
-        if (apiKey.isNullOrBlank()) {
-            emit("[API key not configured. Add your key in Settings.]")
-            return@flow
-        }
-        
-        val hasImage = imageBase64 != null
-        val messages = chatSession.getMessagesForApi(currentSystemPrompt, hasImage)
-        val requestBody = buildRequestBody(messages, stream = true)
-        
-        Log.i(TAG, "Streaming (${chatSession.messageCount()} messages, no user add)")
-
         val connection = createConnection(apiKey)
         val responseBuilder = StringBuilder()
-        
+
         try {
             connection.outputStream.use { os ->
                 os.write(requestBody.toByteArray(Charsets.UTF_8))
             }
 
             val responseCode = connection.responseCode
-            
             if (responseCode != HttpsURLConnection.HTTP_OK) {
                 val errorBody = try {
                     connection.errorStream?.bufferedReader()?.readText() ?: "Unknown error"
@@ -122,41 +113,66 @@ class OpenRouterClient(
             BufferedReader(InputStreamReader(connection.inputStream)).use { reader ->
                 var line: String?
                 while (reader.readLine().also { line = it } != null) {
-                    if (line!!.startsWith("data: ")) {
-                        val data = line!!.removePrefix("data: ").trim()
-                        
-                        if (data == "[DONE]") break
-                        if (data.isEmpty()) continue
-                        
-                        try {
-                            val json = JSONObject(data)
-                            val choices = json.optJSONArray("choices")
-                            if (choices != null && choices.length() > 0) {
-                                val delta = choices.getJSONObject(0).optJSONObject("delta")
-                                val content = delta?.optString("content", "") ?: ""
-                                if (content.isNotEmpty()) {
-                                    responseBuilder.append(content)
-                                    emit(content)
-                                }
+                    if (!line!!.startsWith("data: ")) continue
+                    val data = line!!.removePrefix("data: ").trim()
+
+                    if (data == "[DONE]") break
+                    if (data.isEmpty()) continue
+
+                    try {
+                        val json = JSONObject(data)
+                        val choices = json.optJSONArray("choices")
+                        if (choices != null && choices.length() > 0) {
+                            val delta = choices.getJSONObject(0).optJSONObject("delta")
+                            val contentObj = delta?.opt("content")
+                            val content = if (contentObj is String) contentObj else ""
+                            if (content.isNotEmpty()) {
+                                responseBuilder.append(content)
+                                emit(content)
                             }
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Parse error: $data")
                         }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Parse error: $data")
                     }
                 }
             }
-            
-            // Add assistant response to session
-            if (responseBuilder.isNotEmpty()) {
+
+            if (addToSession && responseBuilder.isNotEmpty()) {
                 chatSession.addAssistantMessage(responseBuilder.toString())
             }
-            
+
+        } catch (e: java.net.UnknownHostException) {
+            emit("[No internet connection]")
+        } catch (e: java.net.SocketTimeoutException) {
+            emit("[Request timed out]")
         } catch (e: Exception) {
             Log.e(TAG, "Stream error", e)
             emit("[Error: ${e.message}]")
         } finally {
             connection.disconnect()
         }
+    }.flowOn(Dispatchers.IO)
+
+
+    /**
+     * Stream completion WITHOUT adding user message (already added externally).
+     * Used when user message was already added to chatSession.
+     */
+    fun streamCompletion(
+        userQuery: String,
+        imageBase64: String? = null
+    ): Flow<String> = flow {
+        val apiKey = keyManager.getOpenRouterApiKey()
+        if (apiKey.isNullOrBlank()) {
+            emit("[API key not configured. Add your key in Settings.]")
+            return@flow
+        }
+
+        val hasImage = imageBase64 != null
+        val messages = chatSession.getMessagesForApi(currentSystemPrompt, hasImage)
+
+        Log.i(TAG, "Streaming (${chatSession.messageCount()} messages, no user add)")
+        emitAll(streamSse(buildRequestBody(messages, stream = true), apiKey, addToSession = true))
     }.flowOn(Dispatchers.IO)
 
     /**
@@ -197,66 +213,8 @@ class OpenRouterClient(
             put("content", enhancedQuery)
         })
         
-        val requestBody = buildRequestBody(messages, stream = true)
         Log.i(TAG, "Streaming direct query with OpenRouter (${allMessages.size} history messages)")
-
-        val connection = createConnection(apiKey)
-        val responseBuilder = StringBuilder()
-        
-        try {
-            connection.outputStream.use { os ->
-                os.write(requestBody.toByteArray(Charsets.UTF_8))
-            }
-
-            val responseCode = connection.responseCode
-            
-            if (responseCode != HttpsURLConnection.HTTP_OK) {
-                val errorBody = try {
-                    connection.errorStream?.bufferedReader()?.readText() ?: "Unknown error"
-                } catch (e: Exception) { "Error: ${e.message}" }
-                Log.e(TAG, "API error $responseCode: $errorBody")
-                emit("[Error $responseCode: $errorBody]")
-                return@flow
-            }
-
-            BufferedReader(InputStreamReader(connection.inputStream)).use { reader ->
-                var line: String?
-                while (reader.readLine().also { line = it } != null) {
-                    if (line!!.startsWith("data: ")) {
-                        val data = line!!.removePrefix("data: ").trim()
-                        
-                        if (data == "[DONE]") break
-                        if (data.isEmpty()) continue
-                        
-                        try {
-                            val json = JSONObject(data)
-                            val choices = json.optJSONArray("choices")
-                            if (choices != null && choices.length() > 0) {
-                                val delta = choices.getJSONObject(0).optJSONObject("delta")
-                                val content = delta?.optString("content", "") ?: ""
-                                if (content.isNotEmpty()) {
-                                    responseBuilder.append(content)
-                                    emit(content)
-                                }
-                            }
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Parse error: $data")
-                        }
-                    }
-                }
-            }
-            
-            // Add assistant response to session
-            if (responseBuilder.isNotEmpty()) {
-                chatSession.addAssistantMessage(responseBuilder.toString())
-            }
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Streaming error", e)
-            emit("[Error: ${e.message}]")
-        } finally {
-            connection.disconnect()
-        }
+        emitAll(streamSse(buildRequestBody(messages, stream = true), apiKey, addToSession = true))
     }.flowOn(Dispatchers.IO)
 
     /**
@@ -296,66 +254,8 @@ class OpenRouterClient(
             put("content", enhancedQuery)
         })
         
-        val requestBody = buildRequestBody(messages, stream = true)
         Log.i(TAG, "Streaming with search context (OpenRouter)")
-
-        val connection = createConnection(apiKey)
-        val responseBuilder = StringBuilder()
-        
-        try {
-            connection.outputStream.use { os ->
-                os.write(requestBody.toByteArray(Charsets.UTF_8))
-            }
-
-            val responseCode = connection.responseCode
-            
-            if (responseCode != HttpsURLConnection.HTTP_OK) {
-                val errorBody = try {
-                    connection.errorStream?.bufferedReader()?.readText() ?: "Unknown error"
-                } catch (e: Exception) { "Error: ${e.message}" }
-                Log.e(TAG, "API error $responseCode: $errorBody")
-                emit("[Error $responseCode: $errorBody]")
-                return@flow
-            }
-
-            BufferedReader(InputStreamReader(connection.inputStream)).use { reader ->
-                var line: String?
-                while (reader.readLine().also { line = it } != null) {
-                    if (line!!.startsWith("data: ")) {
-                        val data = line!!.removePrefix("data: ").trim()
-                        
-                        if (data == "[DONE]") break
-                        if (data.isEmpty()) continue
-                        
-                        try {
-                            val json = JSONObject(data)
-                            val choices = json.optJSONArray("choices")
-                            if (choices != null && choices.length() > 0) {
-                                val delta = choices.getJSONObject(0).optJSONObject("delta")
-                                val content = delta?.optString("content", "") ?: ""
-                                if (content.isNotEmpty()) {
-                                    responseBuilder.append(content)
-                                    emit(content)
-                                }
-                            }
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Parse error: $data")
-                        }
-                    }
-                }
-            }
-            
-            // Add assistant response to session
-            if (responseBuilder.isNotEmpty()) {
-                chatSession.addAssistantMessage(responseBuilder.toString())
-            }
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Streaming error", e)
-            emit("[Error: ${e.message}]")
-        } finally {
-            connection.disconnect()
-        }
+        emitAll(streamSse(buildRequestBody(messages, stream = true), apiKey, addToSession = true))
     }.flowOn(Dispatchers.IO)
 
     /**
@@ -376,71 +276,9 @@ class OpenRouterClient(
         
         val hasImage = imageBase64 != null
         val messages = chatSession.getMessagesForApi(currentSystemPrompt, hasImage)
-        val requestBody = buildRequestBody(messages, stream = true)
-        
+
         Log.i(TAG, "Streaming with session (${chatSession.messageCount()} messages)")
-
-        val connection = createConnection(apiKey)
-        val responseBuilder = StringBuilder()
-        
-        try {
-            connection.outputStream.use { os ->
-                os.write(requestBody.toByteArray(Charsets.UTF_8))
-            }
-
-            val responseCode = connection.responseCode
-            
-            if (responseCode != HttpsURLConnection.HTTP_OK) {
-                val errorBody = try {
-                    connection.errorStream?.bufferedReader()?.readText() ?: "Unknown error"
-                } catch (e: Exception) { "Error: ${e.message}" }
-                Log.e(TAG, "API error $responseCode: $errorBody")
-                emit("[Error $responseCode: $errorBody]")
-                return@flow
-            }
-
-            BufferedReader(InputStreamReader(connection.inputStream)).use { reader ->
-                var line: String?
-                while (reader.readLine().also { line = it } != null) {
-                    if (line!!.startsWith("data: ")) {
-                        val data = line!!.removePrefix("data: ").trim()
-                        
-                        if (data == "[DONE]") break
-                        if (data.isEmpty()) continue
-                        
-                        try {
-                            val json = JSONObject(data)
-                            val choices = json.optJSONArray("choices")
-                            if (choices != null && choices.length() > 0) {
-                                val delta = choices.getJSONObject(0).optJSONObject("delta")
-                                val content = delta?.optString("content", "") ?: ""
-                                if (content.isNotEmpty()) {
-                                    responseBuilder.append(content)
-                                    emit(content)
-                                }
-                            }
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Parse error: $data")
-                        }
-                    }
-                }
-            }
-            
-            // Add assistant response to session
-            if (responseBuilder.isNotEmpty()) {
-                chatSession.addAssistantMessage(responseBuilder.toString())
-            }
-            
-        } catch (e: java.net.UnknownHostException) {
-            emit("[No internet connection]")
-        } catch (e: java.net.SocketTimeoutException) {
-            emit("[Request timed out]")
-        } catch (e: Exception) {
-            Log.e(TAG, "Stream error", e)
-            emit("[Error: ${e.message}]")
-        } finally {
-            connection.disconnect()
-        }
+        emitAll(streamSse(buildRequestBody(messages, stream = true), apiKey, addToSession = true))
     }.flowOn(Dispatchers.IO)
 
     /**
@@ -602,57 +440,7 @@ class OpenRouterClient(
         val requestBody = buildRequestBody(messages, stream = true, tools = tools)
         Log.i(TAG, "Streaming with explicit messages (${messages.length()} messages)")
 
-        val connection = createConnection(apiKey)
-        val responseBuilder = StringBuilder()
-
-        try {
-            connection.outputStream.use { os ->
-                os.write(requestBody.toByteArray(Charsets.UTF_8))
-            }
-
-            val responseCode = connection.responseCode
-            if (responseCode != HttpsURLConnection.HTTP_OK) {
-                val errorBody = try {
-                    connection.errorStream?.bufferedReader()?.readText() ?: "Unknown error"
-                } catch (e: Exception) { "Error: ${e.message}" }
-                Log.e(TAG, "API error $responseCode: $errorBody")
-                emit("[Error $responseCode: $errorBody]")
-                return@flow
-            }
-
-            BufferedReader(InputStreamReader(connection.inputStream)).use { reader ->
-                var line: String?
-                while (reader.readLine().also { line = it } != null) {
-                    if (line!!.startsWith("data: ")) {
-                        val data = line!!.removePrefix("data: ").trim()
-                        if (data == "[DONE]") break
-                        if (data.isEmpty()) continue
-                        try {
-                            val json = JSONObject(data)
-                            val choices = json.optJSONArray("choices")
-                            if (choices != null && choices.length() > 0) {
-                                val delta = choices.getJSONObject(0).optJSONObject("delta")
-                                val contentObj = delta?.opt("content")
-                                val content = if (contentObj is String) contentObj else ""
-                                if (content.isNotEmpty()) {
-                                    responseBuilder.append(content)
-                                    emit(content)
-                                }
-                            }
-                        } catch (e: Exception) { }
-                    }
-                }
-            }
-        } catch (e: java.net.UnknownHostException) {
-            emit("[No internet connection]")
-        } catch (e: java.net.SocketTimeoutException) {
-            emit("[Request timed out]")
-        } catch (e: Exception) {
-            Log.e(TAG, "Streaming error", e)
-            emit("[Error: ${e.message}]")
-        } finally {
-            connection.disconnect()
-        }
+        emitAll(streamSse(requestBody, apiKey, addToSession = false))
     }.flowOn(Dispatchers.IO)
 
     suspend fun completion(
