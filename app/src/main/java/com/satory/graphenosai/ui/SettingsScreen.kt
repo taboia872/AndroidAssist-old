@@ -41,6 +41,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.satory.graphenosai.AssistantApplication
 import com.satory.graphenosai.audio.VoskTranscriber
+import com.satory.graphenosai.llm.LlmProviders
 import com.satory.graphenosai.llm.LocalModelManager
 import com.satory.graphenosai.llm.ModelCatalog
 import com.satory.graphenosai.service.AssistantService
@@ -252,6 +253,131 @@ fun SettingsScreen(
                         title = "OpenRouter API Key",
                         subtitle = if (hasApiKey) "Configured ✓" else "Not configured",
                         onClick = { showApiKeyDialog = true }
+                    )
+                }
+
+                // Cloud LLM endpoint selection (all OpenAI-compatible)
+                var showLlmProviderDialog by remember { mutableStateOf(false) }
+                val llmProvider = LlmProviders.byId(settingsManager.llmProviderId) ?: LlmProviders.OPENROUTER
+                SettingsItem(
+                    icon = Icons.Default.Cloud,
+                    title = "Cloud Provider",
+                    subtitle = llmProvider.displayName,
+                    onClick = { showLlmProviderDialog = true }
+                )
+
+                if (showLlmProviderDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showLlmProviderDialog = false },
+                        title = { Text("Cloud Provider", style = MaterialTheme.typography.headlineSmall) },
+                        text = {
+                            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                                LlmProviders.ALL.forEach { p ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth()
+                                            .clickable {
+                                                settingsManager.llmProviderId = p.id
+                                                assistantService?.reloadSettings()
+                                                showLlmProviderDialog = false
+                                            }
+                                            .padding(vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        RadioButton(
+                                            selected = settingsManager.llmProviderId == p.id,
+                                            onClick = {
+                                                settingsManager.llmProviderId = p.id
+                                                assistantService?.reloadSettings()
+                                                showLlmProviderDialog = false
+                                            }
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column {
+                                            Text(p.displayName, style = MaterialTheme.typography.bodyLarge)
+                                            Text(
+                                                p.baseUrl.removePrefix("https://"),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { showLlmProviderDialog = false }) { Text("Cancel") }
+                        }
+                    )
+                }
+
+                // API key for the selected cloud provider (slot-specific)
+                val activeProvider = LlmProviders.byId(settingsManager.llmProviderId) ?: LlmProviders.OPENROUTER
+                var showProviderKeyDialog by remember { mutableStateOf(false) }
+                val providerKeyConfigured = when (activeProvider.keySlot) {
+                    "openrouter_api_key" -> app.secureKeyManager.hasOpenRouterApiKey()
+                    "groq_api_key" -> app.secureKeyManager.hasGroqApiKey()
+                    "ollama_api_key" -> app.secureKeyManager.hasOllamaApiKey()
+                    "nvidia_api_key" -> app.secureKeyManager.hasNvidiaApiKey()
+                    else -> false
+                }
+                if (activeProvider != LlmProviders.OPENROUTER || !hasApiKey) {
+                    SettingsItem(
+                        icon = Icons.Default.Key,
+                        title = "${activeProvider.displayName} API Key",
+                        subtitle = if (providerKeyConfigured) "Configured ✓" else "Not configured",
+                        onClick = { showProviderKeyDialog = true }
+                    )
+                }
+
+                if (showProviderKeyDialog) {
+                    var providerKey by remember { mutableStateOf("") }
+                    var showProviderKey by remember { mutableStateOf(false) }
+                    AlertDialog(
+                        onDismissRequest = { showProviderKeyDialog = false },
+                        title = { Text("${activeProvider.displayName} API Key") },
+                        text = {
+                            Column {
+                                Text(
+                                    when (activeProvider.id) {
+                                        "groq" -> "Free at console.groq.com/keys"
+                                        "ollama" -> "Create at ollama.com/settings/keys"
+                                        "nvidia" -> "Create at build.nvidia.com/settings"
+                                        else -> "openrouter.ai/keys"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                OutlinedTextField(
+                                    value = providerKey,
+                                    onValueChange = { providerKey = it },
+                                    label = { Text("API Key") },
+                                    singleLine = true,
+                                    visualTransformation = if (showProviderKey) VisualTransformation.None else PasswordVisualTransformation(),
+                                    trailingIcon = {
+                                        IconButton(onClick = { showProviderKey = !showProviderKey }) {
+                                            Icon(if (showProviderKey) Icons.Default.VisibilityOff else Icons.Default.Visibility, "Toggle")
+                                        }
+                                    }
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                if (providerKey.isNotBlank()) {
+                                    when (activeProvider.keySlot) {
+                                        "openrouter_api_key" -> app.secureKeyManager.setOpenRouterApiKey(providerKey)
+                                        "groq_api_key" -> app.secureKeyManager.setGroqApiKey(providerKey)
+                                        "ollama_api_key" -> app.secureKeyManager.setOllamaApiKey(providerKey)
+                                        "nvidia_api_key" -> app.secureKeyManager.setNvidiaApiKey(providerKey)
+                                    }
+                                }
+                                showProviderKeyDialog = false
+                            }) { Text("Save") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showProviderKeyDialog = false }) { Text("Cancel") }
+                        }
                     )
                 }
             }
@@ -930,6 +1056,10 @@ fun SettingsScreen(
             currentModel = if (customModelId.isNotBlank()) customModelId else selectedModel,
             customModelId = customModelId,
             models = SettingsManager.AVAILABLE_MODELS,
+            providerId = settingsManager.llmProviderId,
+            apiKey = app.secureKeyManager.getKeyForSlot(
+                LlmProviders.byId(settingsManager.llmProviderId)?.keySlot
+            ),
             onModelSelected = { model ->
                 selectedModel = model
                 settingsManager.selectedModel = model
@@ -1376,17 +1506,19 @@ fun ModelSelectionDialog(
     currentModel: String,
     customModelId: String = "",
     models: List<SettingsManager.ModelInfo> = SettingsManager.AVAILABLE_MODELS,
+    providerId: String = "openrouter",
+    apiKey: String? = null,
     onModelSelected: (String) -> Unit,
     onCustomModelSelected: (String) -> Unit = {},
     onDismiss: () -> Unit
 ) {
     var showCustomInput by remember { mutableStateOf(false) }
 
-    // Live catalog from OpenRouter (falls back to the bundled curated list
-    // when offline or if the endpoint fails)
+    // Live catalog from the active cloud provider (falls back to the bundled
+    // curated list when offline or if the endpoint fails)
     var catalogModels by remember { mutableStateOf<List<SettingsManager.ModelInfo>?>(null) }
-    LaunchedEffect(Unit) {
-        catalogModels = ModelCatalog.fetch()
+    LaunchedEffect(providerId, apiKey) {
+        catalogModels = ModelCatalog.fetch(providerId = providerId, apiKey = apiKey)
     }
     val displayModels = catalogModels ?: models
 

@@ -19,10 +19,10 @@ import javax.net.ssl.HttpsURLConnection
 object ModelCatalog {
 
     private const val TAG = "ModelCatalog"
-    private const val MODELS_URL = "https://openrouter.ai/api/v1/models"
     private const val CACHE_TTL_MS = 5 * 60 * 1000L
 
     data class CatalogResult(
+        val providerId: String,
         val models: List<com.satory.graphenosai.ui.SettingsManager.ModelInfo>,
         val fetchedAt: Long
     )
@@ -38,18 +38,31 @@ object ModelCatalog {
      * Fetch the live catalog. Returns null on any failure (caller falls back
      * to the curated list). Results are cached in memory.
      */
-    suspend fun fetch(forceRefresh: Boolean = false): List<com.satory.graphenosai.ui.SettingsManager.ModelInfo>? =
+    suspend fun fetch(
+        providerId: String = "openrouter",
+        apiKey: String? = null,
+        forceRefresh: Boolean = false
+    ): List<com.satory.graphenosai.ui.SettingsManager.ModelInfo>? =
         withContext(Dispatchers.IO) {
+            val provider = LlmProviders.byId(providerId) ?: LlmProviders.OPENROUTER
+            // Cache is per provider — catalogs differ between endpoints
             if (!forceRefresh) {
-                cached()?.let { return@withContext it }
+                cache?.takeIf {
+                    it.providerId == provider.id &&
+                        System.currentTimeMillis() - it.fetchedAt < CACHE_TTL_MS
+                }?.let { return@withContext it.models }
             }
 
             try {
-                val connection = (URL(MODELS_URL).openConnection() as HttpsURLConnection).apply {
+                val connection = (URL(provider.modelsUrl).openConnection() as HttpsURLConnection).apply {
                     requestMethod = "GET"
                     connectTimeout = 10000
                     readTimeout = 15000
                     setRequestProperty("Accept", "application/json")
+                    // Groq/NVIDIA/Ollama require the key even for the catalog
+                    if (!apiKey.isNullOrBlank()) {
+                        setRequestProperty("Authorization", "Bearer $apiKey")
+                    }
                 }
 
                 try {
@@ -64,7 +77,7 @@ object ModelCatalog {
                         Log.w(TAG, "Catalog parsed empty — keeping fallback")
                         return@withContext null
                     }
-                    cache = CatalogResult(models, System.currentTimeMillis())
+                    cache = CatalogResult(provider.id, models, System.currentTimeMillis())
                     Log.i(TAG, "Live catalog loaded: ${models.size} models")
                     models
                 } finally {
@@ -102,14 +115,20 @@ object ModelCatalog {
                 true // unknown → assume yes, never block search on missing metadata
             }
 
-            // Description: prompt/completion token price + context length
-            val contextLength = m.optJSONObject("top_provider")?.optInt("context_length", 0) ?: 0
+            // Description: prompt/completion token price + context length.
+            // Field shapes differ per provider: OpenRouter nests context under
+            // top_provider, Groq uses top-level context_window, Ollama/NVIDIA
+            // may omit pricing entirely.
+            val contextLength = m.optJSONObject("top_provider")?.optInt("context_length", 0)
+                ?: m.optInt("context_window", 0)
             val pricing = m.optJSONObject("pricing")
             val promptPrice = pricing?.optString("prompt", "0")?.toDoubleOrNull() ?: 0.0
-            val isFree = id.endsWith(":free") || (promptPrice == 0.0)
+            val hasPricing = pricing != null
+            val isFree = !hasPricing || id.endsWith(":free") || (promptPrice == 0.0)
 
             val desc = buildString {
-                if (isFree) append("Free")
+                if (!hasPricing) append("Hosted model")
+                else if (isFree) append("Free")
                 else append(String.format("$%.2f/M tokens", promptPrice * 1_000_000))
                 if (contextLength > 0) {
                     append(" · ")

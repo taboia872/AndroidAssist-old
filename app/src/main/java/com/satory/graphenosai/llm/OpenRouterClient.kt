@@ -26,13 +26,12 @@ class OpenRouterClient(
 
     companion object {
         private const val TAG = "OpenRouterClient"
-        private const val BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
         private const val TIMEOUT_MS = 30000
         private const val MAX_TOKENS = 4096
         private const val TEMPERATURE = 0.3f
-        
+
         private const val DEFAULT_MODEL = "openai/gpt-5.4-mini"
-        
+
         // Vision-capable models
         private val VISION_MODELS = listOf(
             "openai/gpt-5.5",
@@ -50,21 +49,39 @@ class OpenRouterClient(
             "meta-llama/llama-4-scout",
             "nex-agi/nex-n2-pro:free"
         )
-        
+
         private val FALLBACK_MODELS = listOf(
             "openai/gpt-5.4-mini",
             "google/gemini-3.5-flash",
             "openai/gpt-oss-20b:free"
         )
-        
+
         val DEFAULT_SYSTEM_PROMPT = SystemPrompts.CLOUD_DEFAULT
     }
 
+    // Active cloud provider (OpenAI-compatible endpoints). Defaults to
+    // OpenRouter; the service switches it from settings on reload.
+    private var provider: LlmProviders.Provider = LlmProviders.OPENROUTER
+
     private var currentModel: String = modelOverride ?: DEFAULT_MODEL
     private var currentSystemPrompt: String = systemPromptOverride ?: SystemPrompts.CLOUD_DEFAULT
-    
+
     // Chat session for context
     val chatSession = ChatSession()
+
+    /**
+     * Switch the backing cloud provider. Model preference is kept per app —
+     * users re-pick a model appropriate for the new provider's catalog.
+     */
+    fun setProvider(providerId: String) {
+        val next = LlmProviders.byId(providerId) ?: LlmProviders.OPENROUTER
+        if (next != provider) {
+            provider = next
+            Log.i(TAG, "LLM provider set to ${next.displayName}")
+        }
+    }
+
+    fun activeProvider(): LlmProviders.Provider = provider
     
     fun setModel(model: String) {
         currentModel = model
@@ -168,7 +185,7 @@ class OpenRouterClient(
         userQuery: String,
         imageBase64: String? = null
     ): Flow<String> = flow {
-        val apiKey = keyManager.getOpenRouterApiKey()
+        val apiKey = apiKeyForActiveProvider()
         if (apiKey.isNullOrBlank()) {
             emit("[API key not configured. Add your key in Settings.]")
             return@flow
@@ -190,7 +207,7 @@ class OpenRouterClient(
         enhancedQuery: String,
         imageBase64: String? = null
     ): Flow<String> = flow {
-        val apiKey = keyManager.getOpenRouterApiKey()
+        val apiKey = apiKeyForActiveProvider()
         if (apiKey.isNullOrBlank()) {
             emit("[API key not configured. Add your key in Settings.]")
             return@flow
@@ -231,7 +248,7 @@ class OpenRouterClient(
         enhancedQuery: String,
         imageBase64: String? = null
     ): Flow<String> = flow {
-        val apiKey = keyManager.getOpenRouterApiKey()
+        val apiKey = apiKeyForActiveProvider()
         if (apiKey.isNullOrBlank()) {
             emit("[API key not configured. Add your key in Settings.]")
             return@flow
@@ -271,7 +288,7 @@ class OpenRouterClient(
         userQuery: String,
         imageBase64: String? = null
     ): Flow<String> = flow {
-        val apiKey = keyManager.getOpenRouterApiKey()
+        val apiKey = apiKeyForActiveProvider()
         if (apiKey.isNullOrBlank()) {
             emit("[API key not configured. Add your key in Settings.]")
             return@flow
@@ -296,7 +313,7 @@ class OpenRouterClient(
         tools: JSONArray? = null,
         imageBase64: String? = null
     ): Flow<StreamEvent> = flow {
-        val apiKey = keyManager.getOpenRouterApiKey()
+        val apiKey = apiKeyForActiveProvider()
         if (apiKey.isNullOrBlank()) {
             emit(StreamEvent.Content("[API key not configured. Add your key in Settings.]"))
             return@flow
@@ -440,7 +457,7 @@ class OpenRouterClient(
         messages: JSONArray,
         tools: JSONArray? = null
     ): Flow<String> = flow {
-        val apiKey = keyManager.getOpenRouterApiKey()
+        val apiKey = apiKeyForActiveProvider()
         if (apiKey.isNullOrBlank()) {
             emit("[API key not configured. Add your key in Settings.]")
             return@flow
@@ -459,7 +476,7 @@ class OpenRouterClient(
     ): String = withContext(Dispatchers.IO) {
         val effectiveSystemPrompt = systemPrompt ?: currentSystemPrompt
         
-        val apiKey = keyManager.getOpenRouterApiKey()
+        val apiKey = apiKeyForActiveProvider()
             ?: throw IllegalStateException("API key not configured")
 
         val messages = buildMessages(effectiveSystemPrompt, context, userQuery)
@@ -511,19 +528,26 @@ class OpenRouterClient(
         }
     }
 
+    /** API key for the active provider's slot. */
+    private fun apiKeyForActiveProvider(): String? =
+        keyManager.getKeyForSlot(provider.keySlot)
+
     private fun createConnection(apiKey: String): HttpsURLConnection {
-        val url = URL(BASE_URL)
+        val url = URL("${provider.baseUrl}/chat/completions")
         return (url.openConnection() as HttpsURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = TIMEOUT_MS
             readTimeout = TIMEOUT_MS * 2
             doOutput = true
-            
+
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("Authorization", "Bearer $apiKey")
-            setRequestProperty("HTTP-Referer", "https://github.com/user/ai-assistant")
-            setRequestProperty("X-Title", "GrapheneOS AI Assistant")
-            setRequestProperty("User-Agent", "AIAssistant/1.0")
+            // OpenRouter attribution headers; other providers ignore them
+            setRequestProperty("User-Agent", "AndroidAssist/1.0")
+            if (provider == LlmProviders.OPENROUTER) {
+                setRequestProperty("HTTP-Referer", "https://github.com/taboia872/AndroidAssist")
+                setRequestProperty("X-Title", "AndroidAssist")
+            }
         }
     }
 

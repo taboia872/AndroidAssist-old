@@ -29,6 +29,8 @@ class SecureKeyManager(private val context: Context) {
         private const val PREF_OPENROUTER_KEY = "openrouter_api_key"
         private const val PREF_GROQ_KEY = "groq_api_key"
         private const val PREF_OPENAI_WHISPER_KEY = "openai_whisper_api_key"
+        private const val PREF_OLLAMA_KEY = "ollama_api_key"
+        private const val PREF_NVIDIA_KEY = "nvidia_api_key"
 
         private const val PREF_TOKEN_REFRESH_TIME = "token_refresh_time"
         private const val PREF_BRAVE_API_KEY = "brave_api_key"
@@ -230,6 +232,50 @@ class SecureKeyManager(private val context: Context) {
      */
     fun clearOpenAIWhisperApiKey() {
         prefs.edit().remove(PREF_OPENAI_WHISPER_KEY).apply()
+    }
+
+    // ========== Ollama Cloud API Key Management ==========
+
+    fun setOllamaApiKey(apiKey: String) {
+        prefs.edit().putString(PREF_OLLAMA_KEY, encrypt(apiKey)).apply()
+        Log.i(TAG, "Ollama Cloud API key stored securely")
+    }
+
+    fun getOllamaApiKey(): String? {
+        val encrypted = prefs.getString(PREF_OLLAMA_KEY, null) ?: return null
+        return try { decrypt(encrypted) } catch (e: Exception) { null }
+    }
+
+    fun hasOllamaApiKey(): Boolean = prefs.contains(PREF_OLLAMA_KEY)
+
+    fun clearOllamaApiKey() { prefs.edit().remove(PREF_OLLAMA_KEY).apply() }
+
+    // ========== NVIDIA NIM API Key Management ==========
+
+    fun setNvidiaApiKey(apiKey: String) {
+        prefs.edit().putString(PREF_NVIDIA_KEY, encrypt(apiKey)).apply()
+        Log.i(TAG, "NVIDIA NIM API key stored securely")
+    }
+
+    fun getNvidiaApiKey(): String? {
+        val encrypted = prefs.getString(PREF_NVIDIA_KEY, null) ?: return null
+        return try { decrypt(encrypted) } catch (e: Exception) { null }
+    }
+
+    fun hasNvidiaApiKey(): Boolean = prefs.contains(PREF_NVIDIA_KEY)
+
+    fun clearNvidiaApiKey() { prefs.edit().remove(PREF_NVIDIA_KEY).apply() }
+
+    /**
+     * Generic slot-based access used by LlmProviders — maps a provider's
+     * keySlot name onto its concrete getter without leaking secrets.
+     */
+    fun getKeyForSlot(slot: String?): String? = when (slot) {
+        "openrouter_api_key" -> getOpenRouterApiKey()
+        "groq_api_key" -> getGroqApiKey()
+        "ollama_api_key" -> getOllamaApiKey()
+        "nvidia_api_key" -> getNvidiaApiKey()
+        else -> null
     }
 
     // ========== Brave Search API Key Management ==========

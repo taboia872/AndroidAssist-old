@@ -190,12 +190,6 @@ class AssistantService : Service() {
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "AssistantService created")
-        
-        // Warm the live model catalog so isVisionCapable() and the model
-        // picker have real data without blocking startup
-        serviceScope.launch {
-            ModelCatalog.fetch()
-        }
 
         val app = application as AssistantApplication
         
@@ -222,8 +216,20 @@ class AssistantService : Service() {
         }
         
         openRouterClient = OpenRouterClient(app.secureKeyManager).apply {
+            setProvider(settingsManager.llmProviderId)
             setModel(settingsManager.getEffectiveModel())
             setSystemPrompt(settingsManager.systemPrompt)
+        }
+
+        // Warm the live model catalog so isVisionCapable() and the model
+        // picker have real data without blocking startup
+        serviceScope.launch {
+            ModelCatalog.fetch(
+                providerId = settingsManager.llmProviderId,
+                apiKey = app.secureKeyManager.getKeyForSlot(
+                    LlmProviders.byId(settingsManager.llmProviderId)?.keySlot
+                )
+            )
         }
         
         // Initialize local LLM client
@@ -1424,6 +1430,7 @@ class AssistantService : Service() {
         
         // Reload model settings
         val effectiveModel = settingsManager.getEffectiveModel()
+        openRouterClient.setProvider(settingsManager.llmProviderId)
         openRouterClient.setModel(effectiveModel)
         openRouterClient.setSystemPrompt(settingsManager.systemPrompt)
         

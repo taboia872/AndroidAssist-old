@@ -2,7 +2,9 @@ package com.satory.graphenosai.ui
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.satory.graphenosai.llm.LlmProviders
 import com.satory.graphenosai.llm.SystemPrompts
+import java.util.Locale
 
 /**
  * Settings manager for app preferences.
@@ -37,6 +39,8 @@ class SettingsManager(context: Context) {
         // API Providers
         const val PROVIDER_OPENROUTER = "openrouter"
         const val PROVIDER_LOCAL = "local"  // Local llama.cpp models
+        // Cloud LLM provider (LlmProviders id): openrouter | groq | ollama | nvidia
+        private const val KEY_LLM_PROVIDER = "llm_provider_id"
         
         // Search Engines
         const val SEARCH_BRAVE = "brave"
@@ -77,7 +81,7 @@ class SettingsManager(context: Context) {
         )
         
         const val DEFAULT_MODEL = "openai/gpt-5.4-mini"
-        const val DEFAULT_LANGUAGE = "en"
+        const val DEFAULT_LANGUAGE = ""  // empty = follow system locale
         const val DEFAULT_TTS_LANGUAGE = "en-US"
         
         val DEFAULT_SYSTEM_PROMPT = SystemPrompts.CLOUD_DEFAULT
@@ -110,7 +114,12 @@ class SettingsManager(context: Context) {
         set(value) = prefs.edit().putString(KEY_VOICE_INPUT_METHOD, value).apply()
     
     var voiceLanguage: String
-        get() = prefs.getString(KEY_VOICE_LANGUAGE, DEFAULT_LANGUAGE) ?: DEFAULT_LANGUAGE
+        get() {
+            val stored = prefs.getString(KEY_VOICE_LANGUAGE, DEFAULT_LANGUAGE) ?: DEFAULT_LANGUAGE
+            // Empty value means "follow the system locale" — resolves lazily so
+            // a device language change takes effect without touching settings.
+            return stored.ifEmpty { Locale.getDefault().language }
+        }
         set(value) = prefs.edit().putString(KEY_VOICE_LANGUAGE, value).apply()
     
     var secondaryVoiceLanguage: String
@@ -136,6 +145,14 @@ class SettingsManager(context: Context) {
     var apiProvider: String
         get() = prefs.getString(KEY_API_PROVIDER, PROVIDER_OPENROUTER) ?: PROVIDER_OPENROUTER
         set(value) = prefs.edit().putString(KEY_API_PROVIDER, value).apply()
+
+    /**
+     * Which cloud LLM backend to use (LlmProviders id). Orthogonal to
+     * apiProvider: only meaningful when apiProvider != PROVIDER_LOCAL.
+     */
+    var llmProviderId: String
+        get() = prefs.getString(KEY_LLM_PROVIDER, LlmProviders.OPENROUTER.id) ?: LlmProviders.OPENROUTER.id
+        set(value) = prefs.edit().putString(KEY_LLM_PROVIDER, value).apply()
     
     var whisperProvider: String
         get() = prefs.getString(KEY_WHISPER_PROVIDER, WHISPER_GROQ) ?: WHISPER_GROQ
