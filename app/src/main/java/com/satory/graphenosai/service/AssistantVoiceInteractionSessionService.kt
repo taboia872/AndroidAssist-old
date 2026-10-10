@@ -27,6 +27,8 @@ class AssistantVoiceInteractionSession(context: Context) : VoiceInteractionSessi
 
     companion object {
         private const val TAG = "AssistantVoiceSession"
+        private const val HIDE_DELAY_MS = 450L
+        private val hideHandler = android.os.Handler(android.os.Looper.getMainLooper())
     }
 
     override fun onShow(args: Bundle?, showFlags: Int) {
@@ -46,13 +48,18 @@ class AssistantVoiceInteractionSession(context: Context) : VoiceInteractionSessi
 
             val overlayIntent = Intent(context, CompactAssistantActivity::class.java)
             startVoiceActivity(overlayIntent)
+
+            // Hiding the session window in the same frame races the overlay
+            // activity launch: on Android 14+ the system can cancel the pending
+            // activity start when the session window goes away, leaving the
+            // assistant "selected but never appears". Give the launch a head
+            // start, then hide the (empty) session window.
+            hideHandler.postDelayed({ hide() }, HIDE_DELAY_MS)
         } catch (error: RuntimeException) {
-            // Never let a system-assistant callback crash the process. The error
-            // remains in logcat for device-specific policy diagnosis.
+            // Never let a system-assistant callback crash the process. A crash
+            // here makes the system tear the VoiceInteractionService down and
+            // reset the default-assistant selection to none.
             Log.e(TAG, "Could not launch assistant from voice interaction", error)
-        } finally {
-            // The app's compact activity owns the visible UI once it has launched.
-            hide()
         }
     }
 

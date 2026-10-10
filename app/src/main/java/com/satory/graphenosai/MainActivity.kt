@@ -159,6 +159,29 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openAssistantSettings() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val roleManager = getSystemService(Context.ROLE_SERVICE) as? RoleManager
+            if (roleManager?.isRoleAvailable(RoleManager.ROLE_ASSISTANT) == true) {
+                // requestRole shows the system's default-assistant chooser — the
+                // same flow Settings uses, so the selection sticks the same way
+                // it does when set from the Settings app.
+                roleManager.requestRoleHeld(
+                    RoleManager.ROLE_ASSISTANT,
+                    mainExecutor
+                ) { wasGranted ->
+                    if (!wasGranted) {
+                        // User declined or the chooser failed — fall back to the
+                        // settings page so they can set it manually.
+                        openVoiceInputSettings()
+                    }
+                }
+                return
+            }
+        }
+        openVoiceInputSettings()
+    }
+
+    private fun openVoiceInputSettings() {
         try {
             startActivity(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
         } catch (e: Exception) {
@@ -243,11 +266,30 @@ fun MainScreen(
     val apiKeyDescription = if (hasApiKey) "OpenRouter configured" else "OpenRouter not configured"
     val isAccessibilityEnabled = AssistantAccessibilityService.isServiceRunning
     
-    val isDefaultAssistant = remember {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val roleManager = context.getSystemService(Context.ROLE_SERVICE) as? RoleManager
-            roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) ?: false
-        } else false
+    // Re-check the assistant role every time the screen becomes visible: the
+    // system can silently reset the default-assistant selection (force stop,
+    // reboot, GrapheneOS issue #7645), and remember{} without keys would keep
+    // showing a stale "Set"/"Complete" state after coming back from Settings.
+    var isDefaultAssistant by remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val roleManager = context.getSystemService(Context.ROLE_SERVICE) as? RoleManager
+                roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) ?: false
+            } else false
+        )
+    }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                isDefaultAssistant = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val roleManager = context.getSystemService(Context.ROLE_SERVICE) as? RoleManager
+                    roleManager?.isRoleHeld(RoleManager.ROLE_ASSISTANT) ?: false
+                } else false
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     
     val voskTranscriber = remember { VoskTranscriber(context) }
