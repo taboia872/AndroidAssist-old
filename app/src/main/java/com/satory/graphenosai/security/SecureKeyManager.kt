@@ -28,6 +28,7 @@ class SecureKeyManager(private val context: Context) {
         private const val PREFS_NAME = "assistant_secure_prefs"
         private const val PREF_OPENROUTER_KEY = "openrouter_api_key"
         private const val PREF_GROQ_KEY = "groq_api_key"
+        private const val PREF_OPENAI_WHISPER_KEY = "openai_whisper_api_key"
 
         private const val PREF_TOKEN_REFRESH_TIME = "token_refresh_time"
         private const val PREF_BRAVE_API_KEY = "brave_api_key"
@@ -190,6 +191,45 @@ class SecureKeyManager(private val context: Context) {
      */
     fun clearGroqApiKey() {
         prefs.edit().remove(PREF_GROQ_KEY).apply()
+    }
+
+    // ========== OpenAI Whisper API Key Management ==========
+
+    /**
+     * Store OpenAI API key securely (for Whisper cloud transcription when the
+     * OpenAI provider is selected — NOT the OpenRouter key).
+     */
+    fun setOpenAIWhisperApiKey(apiKey: String) {
+        val encrypted = encrypt(apiKey)
+        prefs.edit().putString(PREF_OPENAI_WHISPER_KEY, encrypted).apply()
+        Log.i(TAG, "OpenAI Whisper API key stored securely")
+    }
+
+    /**
+     * Retrieve OpenAI Whisper API key.
+     */
+    fun getOpenAIWhisperApiKey(): String? {
+        val encrypted = prefs.getString(PREF_OPENAI_WHISPER_KEY, null) ?: return null
+        return try {
+            decrypt(encrypted)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to decrypt OpenAI Whisper API key", e)
+            null
+        }
+    }
+
+    /**
+     * Check if OpenAI Whisper API key is configured.
+     */
+    fun hasOpenAIWhisperApiKey(): Boolean {
+        return prefs.contains(PREF_OPENAI_WHISPER_KEY)
+    }
+
+    /**
+     * Clear stored OpenAI Whisper API key.
+     */
+    fun clearOpenAIWhisperApiKey() {
+        prefs.edit().remove(PREF_OPENAI_WHISPER_KEY).apply()
     }
 
     // ========== Brave Search API Key Management ==========

@@ -397,6 +397,8 @@ fun SettingsScreen(
                 var showWhisperProviderDialog by remember { mutableStateOf(false) }
                 var hasGroqKey by remember { mutableStateOf(app.secureKeyManager.hasGroqApiKey()) }
                 var showGroqKeyDialog by remember { mutableStateOf(false) }
+                var hasOpenAIWhisperKey by remember { mutableStateOf(app.secureKeyManager.hasOpenAIWhisperApiKey()) }
+                var showOpenAIWhisperKeyDialog by remember { mutableStateOf(false) }
 
                 val voiceMethodName = when (voiceInputMethod) {
                     SettingsManager.VOICE_INPUT_VOSK -> "Vosk (Offline)"
@@ -428,6 +430,15 @@ fun SettingsScreen(
                             title = "Groq API Key",
                             subtitle = if (hasGroqKey) "Configured ✓" else "Free at console.groq.com",
                             onClick = { showGroqKeyDialog = true }
+                        )
+                    }
+
+                    if (whisperProvider == SettingsManager.WHISPER_OPENAI) {
+                        SettingsItem(
+                            icon = Icons.Default.Key,
+                            title = "OpenAI API Key",
+                            subtitle = if (hasOpenAIWhisperKey) "Configured ✓" else "Required for OpenAI Whisper (sk-...)",
+                            onClick = { showOpenAIWhisperKeyDialog = true }
                         )
                     }
                 }
@@ -561,6 +572,48 @@ fun SettingsScreen(
                         },
                         dismissButton = {
                             TextButton(onClick = { showGroqKeyDialog = false }) { Text("Cancel") }
+                        }
+                    )
+                }
+
+                if (showOpenAIWhisperKeyDialog) {
+                    var openAIKey by remember { mutableStateOf("") }
+                    var showKey2 by remember { mutableStateOf(false) }
+
+                    AlertDialog(
+                        onDismissRequest = { showOpenAIWhisperKeyDialog = false },
+                        title = { Text("OpenAI API Key") },
+                        text = {
+                            Column {
+                                Text("Required for OpenAI Whisper transcription. This is an OpenAI platform key (sk-...), NOT the OpenRouter key.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(modifier = Modifier.height(16.dp))
+                                OutlinedTextField(
+                                    value = openAIKey,
+                                    onValueChange = { openAIKey = it },
+                                    label = { Text("API Key") },
+                                    singleLine = true,
+                                    visualTransformation = if (showKey2) VisualTransformation.None else PasswordVisualTransformation(),
+                                    trailingIcon = {
+                                        IconButton(onClick = { showKey2 = !showKey2 }) {
+                                            Icon(if (showKey2) Icons.Default.VisibilityOff else Icons.Default.Visibility, "Toggle")
+                                        }
+                                    }
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                if (openAIKey.isNotBlank()) {
+                                    app.secureKeyManager.setOpenAIWhisperApiKey(openAIKey)
+                                    hasOpenAIWhisperKey = true
+                                }
+                                showOpenAIWhisperKeyDialog = false
+                            }) { Text("Save") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showOpenAIWhisperKeyDialog = false }) { Text("Cancel") }
                         }
                     )
                 }

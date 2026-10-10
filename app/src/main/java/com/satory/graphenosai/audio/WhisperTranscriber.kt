@@ -108,7 +108,13 @@ class WhisperTranscriber(
                     activeConnection.errorStream?.bufferedReader()?.readText() ?: "Unknown error"
                 } catch (e: Exception) { "Error $responseCode" }
                 Log.e(TAG, "Whisper API error: $error")
-                return@withContext Result.failure(Exception("Transcription failed: $responseCode"))
+                // Surface the API's own message (e.g. invalid/missing key) instead
+                // of a bare status code, so the user knows what to fix.
+                val apiMessage = try {
+                    JSONObject(error).optJSONObject("error")?.optString("message", "") ?: ""
+                } catch (e: Exception) { "" }
+                val detail = if (apiMessage.isNotBlank()) apiMessage else "HTTP $responseCode"
+                return@withContext Result.failure(Exception("Transcription failed: $detail"))
             }
             
             val response = activeConnection.inputStream.bufferedReader().readText()

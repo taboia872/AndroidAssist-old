@@ -205,10 +205,12 @@ class AssistantService : Service() {
         
         // Initialize Whisper with API key provider
         whisperTranscriber = WhisperTranscriber {
-            // Use OpenRouter API key for Groq or OpenAI key
+            // Whisper keys are provider-specific: Groq must have a Groq key,
+            // OpenAI an OpenAI key. Never send an OpenRouter key to either —
+            // it would always be rejected with 401.
             when (settingsManager.whisperProvider) {
-                SettingsManager.WHISPER_OPENAI -> app.secureKeyManager.getOpenRouterApiKey()
-                else -> app.secureKeyManager.getGroqApiKey() ?: app.secureKeyManager.getOpenRouterApiKey()
+                SettingsManager.WHISPER_OPENAI -> app.secureKeyManager.getOpenAIWhisperApiKey()
+                else -> app.secureKeyManager.getGroqApiKey()
             }
         }.apply {
             provider = when (settingsManager.whisperProvider) {
