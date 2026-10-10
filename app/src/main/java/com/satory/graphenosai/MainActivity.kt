@@ -162,23 +162,25 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val roleManager = getSystemService(Context.ROLE_SERVICE) as? RoleManager
             if (roleManager?.isRoleAvailable(RoleManager.ROLE_ASSISTANT) == true) {
-                // requestRole shows the system's default-assistant chooser — the
-                // same flow Settings uses, so the selection sticks the same way
-                // it does when set from the Settings app.
-                roleManager.requestRoleHeld(
-                    RoleManager.ROLE_ASSISTANT,
-                    mainExecutor
-                ) { wasGranted ->
-                    if (!wasGranted) {
-                        // User declined or the chooser failed — fall back to the
-                        // settings page so they can set it manually.
-                        openVoiceInputSettings()
-                    }
-                }
+                // createRequestRoleIntent shows the system's default-assistant
+                // chooser — the same flow Settings uses, so the selection
+                // sticks the same way it does when set from Settings.
+                val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT)
+                assistantRoleLauncher.launch(intent)
                 return
             }
         }
         openVoiceInputSettings()
+    }
+
+    private val assistantRoleLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode != RESULT_OK) {
+            // User declined or the chooser failed — fall back to the settings
+            // page so they can set it manually.
+            openVoiceInputSettings()
+        }
     }
 
     private fun openVoiceInputSettings() {
