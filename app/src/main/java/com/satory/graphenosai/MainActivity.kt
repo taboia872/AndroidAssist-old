@@ -40,6 +40,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.satory.graphenosai.llm.LlmProviders
 import com.satory.graphenosai.service.AssistantAccessibilityService
 import com.satory.graphenosai.service.AssistantService
 import com.satory.graphenosai.ui.SettingsManager
@@ -282,8 +283,26 @@ fun MainScreen(
     val app = context.applicationContext as AssistantApplication
     val settingsManager = remember { SettingsManager(context) }
     
-    var hasApiKey by remember { mutableStateOf(app.secureKeyManager.hasOpenRouterApiKey()) }
-    val apiKeyDescription = if (hasApiKey) "OpenRouter configured" else "OpenRouter not configured"
+    var hasApiKey by remember {
+        mutableStateOf(app.secureKeyManager.getKeyForSlot(
+            LlmProviders.byId(settingsManager.llmProviderId)?.keySlot
+        ) != null)
+    }
+    val activeLlmProvider = LlmProviders.byId(settingsManager.llmProviderId) ?: LlmProviders.OPENROUTER
+    // Re-check when returning to the screen (keys may have been saved in Settings)
+    val apiKeyLifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(apiKeyLifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                hasApiKey = app.secureKeyManager.getKeyForSlot(
+                    LlmProviders.byId(settingsManager.llmProviderId)?.keySlot
+                ) != null
+            }
+        }
+        apiKeyLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { apiKeyLifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val apiKeyDescription = if (hasApiKey) "${activeLlmProvider.displayName} configured" else "${activeLlmProvider.displayName} not configured"
     val isAccessibilityEnabled = AssistantAccessibilityService.isServiceRunning
     
     // Re-check the assistant role every time the screen becomes visible: the
@@ -627,7 +646,9 @@ fun ActivationMethodCard(
 fun ApiKeyInputCard(onApiKeySaved: () -> Unit) {
     val context = LocalContext.current
     val app = context.applicationContext as AssistantApplication
-    
+    val settingsManager = remember { SettingsManager(context) }
+    val provider = LlmProviders.byId(settingsManager.llmProviderId) ?: LlmProviders.OPENROUTER
+
     var apiKey by remember { mutableStateOf("") }
     var isVisible by remember { mutableStateOf(false) }
 
@@ -649,11 +670,16 @@ fun ApiKeyInputCard(onApiKeySaved: () -> Unit) {
                 Spacer(modifier = Modifier.width(10.dp))
                 Column {
                     Text(
-                        "OpenRouter API Key",
+                        "${provider.displayName} API Key",
                         style = MaterialTheme.typography.titleMedium
                     )
                     Text(
-                        "Get your key from openrouter.ai",
+                        when (provider.id) {
+                            "groq" -> "Free at console.groq.com/keys"
+                            "ollama" -> "Create at ollama.com/settings/keys"
+                            "nvidia" -> "Create at build.nvidia.com/settings"
+                            else -> "Get your key from openrouter.ai"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -688,7 +714,13 @@ fun ApiKeyInputCard(onApiKeySaved: () -> Unit) {
             Button(
                 onClick = {
                     if (apiKey.isNotBlank()) {
-                        app.secureKeyManager.setOpenRouterApiKey(apiKey)
+                        // Save into the ACTIVE provider's slot — not hardcoded OpenRouter
+                        when (provider.keySlot) {
+                            "openrouter_api_key" -> app.secureKeyManager.setOpenRouterApiKey(apiKey)
+                            "groq_api_key" -> app.secureKeyManager.setGroqApiKey(apiKey)
+                            "ollama_api_key" -> app.secureKeyManager.setOllamaApiKey(apiKey)
+                            "nvidia_api_key" -> app.secureKeyManager.setNvidiaApiKey(apiKey)
+                        }
                         apiKey = ""
                         onApiKeySaved()
                     }

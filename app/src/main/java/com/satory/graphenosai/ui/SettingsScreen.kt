@@ -85,14 +85,17 @@ fun SettingsScreen(
     var showCustomModelDialog by remember { mutableStateOf(false) }
     var showLocalModelDialog by remember { mutableStateOf(false) }
     var showPromptDialog by remember { mutableStateOf(false) }
-    var showApiKeyDialog by remember { mutableStateOf(false) }
     var showBraveKeyDialog by remember { mutableStateOf(false) }
     var showExaKeyDialog by remember { mutableStateOf(false) }
     var showLangSearchKeyDialog by remember { mutableStateOf(false) }
     var showSearchEngineDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
     var showSecondaryLanguageDialog by remember { mutableStateOf(false) }
-    var hasApiKey by remember { mutableStateOf(app.secureKeyManager.hasOpenRouterApiKey()) }
+    var hasApiKey by remember {
+        mutableStateOf(app.secureKeyManager.getKeyForSlot(
+            LlmProviders.byId(settingsManager.llmProviderId)?.keySlot
+        ) != null)
+    }
     var hasBraveApiKey by remember { mutableStateOf(app.secureKeyManager.hasBraveApiKey()) }
     var hasExaApiKey by remember { mutableStateOf(app.secureKeyManager.hasExaApiKey()) }
     var hasLangSearchApiKey by remember { mutableStateOf(app.secureKeyManager.hasLangSearchApiKey()) }
@@ -141,7 +144,10 @@ fun SettingsScreen(
     }
     val keyStatus = when (apiProvider) {
         SettingsManager.PROVIDER_LOCAL -> "Offline"
-        else -> if (hasApiKey) "API key saved" else "API key needed"
+        else -> {
+            val p = LlmProviders.byId(settingsManager.llmProviderId) ?: LlmProviders.OPENROUTER
+            if (hasApiKey) "${p.displayName} key saved" else "${p.displayName} key needed"
+        }
     }
 
     Surface(
@@ -247,16 +253,9 @@ fun SettingsScreen(
                     )
                 }
 
-                if (apiProvider == SettingsManager.PROVIDER_OPENROUTER) {
-                    SettingsItem(
-                        icon = Icons.Default.Key,
-                        title = "OpenRouter API Key",
-                        subtitle = if (hasApiKey) "Configured ✓" else "Not configured",
-                        onClick = { showApiKeyDialog = true }
-                    )
-                }
-
-                // Cloud LLM endpoint selection (all OpenAI-compatible)
+                // Cloud LLM endpoint selection (all OpenAI-compatible). The
+                // active provider's API key is managed right below — one flow,
+                // no provider-specific special cases above it.
                 var showLlmProviderDialog by remember { mutableStateOf(false) }
                 val llmProvider = LlmProviders.byId(settingsManager.llmProviderId) ?: LlmProviders.OPENROUTER
                 SettingsItem(
@@ -1115,17 +1114,6 @@ fun SettingsScreen(
         )
     }
 
-    if (showApiKeyDialog) {
-        ApiKeyDialog(
-            hasExistingKey = hasApiKey,
-            onApiKeySaved = { key ->
-                app.secureKeyManager.setOpenRouterApiKey(key)
-                hasApiKey = true
-                showApiKeyDialog = false
-            },
-            onDismiss = { showApiKeyDialog = false }
-        )
-    }
 
     if (showBraveKeyDialog) {
         BraveApiKeyDialog(
@@ -1736,56 +1724,6 @@ fun SystemPromptDialog(
             }
         }
     }
-}
-
-@Composable
-fun ApiKeyDialog(
-    hasExistingKey: Boolean,
-    onApiKeySaved: (String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var apiKey by remember { mutableStateOf("") }
-    var isVisible by remember { mutableStateOf(false) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("OpenRouter API Key") },
-        text = {
-            Column {
-                if (hasExistingKey) {
-                    Text("An API key is already configured. Enter a new key to replace it.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-                Text("Get your API key from openrouter.ai",
-                    style = MaterialTheme.typography.bodySmall)
-                Spacer(modifier = Modifier.height(16.dp))
-                OutlinedTextField(
-                    value = apiKey,
-                    onValueChange = { apiKey = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("API Key") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(14.dp),
-                    visualTransformation = if (isVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        IconButton(onClick = { isVisible = !isVisible }) {
-                            Icon(if (isVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility, "Toggle")
-                        }
-                    }
-                )
-            }
-        },
-        confirmButton = {
-            Button(onClick = { onApiKeySaved(apiKey) }, enabled = apiKey.isNotBlank()) {
-                Text("Save")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
 }
 
 @Composable
