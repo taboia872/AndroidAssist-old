@@ -20,6 +20,7 @@ import com.satory.graphenosai.audio.VoskTranscriber
 import com.satory.graphenosai.audio.WhisperTranscriber
 import com.satory.graphenosai.llm.*
 import com.satory.graphenosai.search.BraveSearchClient
+import com.satory.graphenosai.search.DuckDuckGoSearchClient
 import com.satory.graphenosai.search.ExaSearchClient
 import com.satory.graphenosai.search.LangSearchClient
 import com.satory.graphenosai.search.SearchResult
@@ -60,6 +61,7 @@ class AssistantService : Service() {
     private lateinit var braveSearchClient: BraveSearchClient
     private lateinit var exaSearchClient: ExaSearchClient
     private lateinit var langSearchClient: LangSearchClient
+    private lateinit var duckDuckGoSearchClient: DuckDuckGoSearchClient
     private lateinit var openMeteoClient: OpenMeteoClient
     lateinit var ttsManager: TTSManager
         private set
@@ -238,6 +240,7 @@ class AssistantService : Service() {
         braveSearchClient = BraveSearchClient(app.secureKeyManager)
         exaSearchClient = ExaSearchClient(app.secureKeyManager)
         langSearchClient = LangSearchClient(app.secureKeyManager)
+        duckDuckGoSearchClient = DuckDuckGoSearchClient()
         openMeteoClient = OpenMeteoClient()
         ttsManager = TTSManager(this)
 
@@ -762,6 +765,7 @@ class AssistantService : Service() {
     }
 
     private fun isSearchConfigured(): Boolean = when (settingsManager.searchEngine) {
+        SettingsManager.SEARCH_DUCKDUCKGO -> duckDuckGoSearchClient.isConfigured()
         SettingsManager.SEARCH_EXA -> exaSearchClient.isConfigured()
         SettingsManager.SEARCH_LANGSEARCH -> langSearchClient.isConfigured()
         else -> braveSearchClient.isConfigured()
@@ -1019,6 +1023,7 @@ class AssistantService : Service() {
     }
 
     private suspend fun executeSearch(query: String): List<SearchResult> = when (settingsManager.searchEngine) {
+        SettingsManager.SEARCH_DUCKDUCKGO -> duckDuckGoSearchClient.search(query)
         SettingsManager.SEARCH_EXA -> exaSearchClient.search(query)
         SettingsManager.SEARCH_LANGSEARCH -> langSearchClient.search(query)
         else -> braveSearchClient.search(query)

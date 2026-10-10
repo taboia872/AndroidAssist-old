@@ -42,6 +42,7 @@ class SettingsManager(context: Context) {
         const val SEARCH_BRAVE = "brave"
         const val SEARCH_EXA = "exa"
         const val SEARCH_LANGSEARCH = "langsearch"
+        const val SEARCH_DUCKDUCKGO = "duckduckgo"  // Keyless, free, private
         
         // Local model settings
         private const val KEY_LOCAL_MODEL_ID = "local_model_id"
@@ -141,7 +142,7 @@ class SettingsManager(context: Context) {
         set(value) = prefs.edit().putString(KEY_WHISPER_PROVIDER, value).apply()
     
     var searchEngine: String
-        get() = prefs.getString(KEY_SEARCH_ENGINE, SEARCH_BRAVE) ?: SEARCH_BRAVE
+        get() = prefs.getString(KEY_SEARCH_ENGINE, SEARCH_DUCKDUCKGO) ?: SEARCH_DUCKDUCKGO
         set(value) = prefs.edit().putString(KEY_SEARCH_ENGINE, value).apply()
 
     var ttsLanguage: String

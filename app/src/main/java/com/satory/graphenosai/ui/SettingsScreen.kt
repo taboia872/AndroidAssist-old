@@ -132,6 +132,7 @@ fun SettingsScreen(
         else -> "Android system"
     }
     val searchLabel = when (searchEngine) {
+        SettingsManager.SEARCH_DUCKDUCKGO -> "DuckDuckGo"
         SettingsManager.SEARCH_BRAVE -> "Brave"
         SettingsManager.SEARCH_EXA -> "Exa"
         SettingsManager.SEARCH_LANGSEARCH -> "LangSearch"
@@ -265,6 +266,7 @@ fun SettingsScreen(
             if (apiProvider != SettingsManager.PROVIDER_LOCAL) {
                 SettingsSection(title = "Web Search") {
                     val searchEngineName = when (searchEngine) {
+                        SettingsManager.SEARCH_DUCKDUCKGO -> "DuckDuckGo"
                         SettingsManager.SEARCH_BRAVE -> "Brave Search"
                         SettingsManager.SEARCH_EXA -> "Exa AI"
                         SettingsManager.SEARCH_LANGSEARCH -> "LangSearch"
@@ -278,6 +280,14 @@ fun SettingsScreen(
                     )
 
                     when (searchEngine) {
+                        SettingsManager.SEARCH_DUCKDUCKGO -> {
+                            SettingsItem(
+                                icon = Icons.Default.CheckCircle,
+                                title = "No API key needed",
+                                subtitle = "Works out of the box • Free • Private",
+                                onClick = { }
+                            )
+                        }
                         SettingsManager.SEARCH_BRAVE -> {
                             SettingsItem(
                                 icon = Icons.Default.Key,
@@ -2031,6 +2041,7 @@ fun SearchEngineDialog(
         text = {
             Column {
                 listOf(
+                    Triple(SettingsManager.SEARCH_DUCKDUCKGO, "DuckDuckGo", "Free, private, no API key needed"),
                     Triple(SettingsManager.SEARCH_BRAVE, "Brave Search", "Privacy-focused, 2000 free queries/month"),
                     Triple(SettingsManager.SEARCH_EXA, "Exa AI", "Semantic search with AI-powered results"),
                     Triple(SettingsManager.SEARCH_LANGSEARCH, "LangSearch", "Free web search API for LLM applications")
