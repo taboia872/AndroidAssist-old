@@ -391,8 +391,11 @@ class OpenRouterClient(
                 }
             }
 
-            // Check if tool calls were requested
-            if (finishReason == "tool_calls" && toolCallsByIndex.isNotEmpty()) {
+            // Check if tool calls were requested. Some OpenRouter providers do
+            // not set finish_reason="tool_calls" reliably; accept the calls
+            // whenever they accumulated completely. If content was also
+            // streamed, prefer the content (no false positives).
+            if (toolCallsByIndex.isNotEmpty()) {
                 val calls = mutableListOf<ToolCall>()
                 for (idx in 0 until toolCallsByIndex.size) {
                     val tc = toolCallsByIndex[idx] ?: continue
@@ -404,7 +407,7 @@ class OpenRouterClient(
                     }
                 }
 
-                if (calls.isNotEmpty()) {
+                if (calls.isNotEmpty() && (finishReason == "tool_calls" || responseBuilder.isEmpty())) {
                     val assistantMsg = buildToolAssistantMessage(calls)
                     emit(StreamEvent.ToolCallsDetected(assistantMsg, calls))
                     return@flow

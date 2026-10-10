@@ -1498,6 +1498,16 @@ fun ModelItem(
                             }
                         )
                     }
+                    if (!model.supportsTools) {
+                        AssistChip(
+                            onClick = {},
+                            enabled = false,
+                            label = { Text("No web search") },
+                            leadingIcon = {
+                                Icon(Icons.Default.SearchOff, contentDescription = null, modifier = Modifier.size(16.dp))
+                            }
+                        )
+                    }
                     if (model.id.contains(":free")) {
                         AssistChip(
                             onClick = {},

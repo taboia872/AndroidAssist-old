@@ -734,7 +734,14 @@ class AssistantService : Service() {
                         }
                     }
                     RetrievalIntent.NONE -> if (isSearchConfigured()) {
-                        processWithFunctionCalling(imageBase64)
+                        if (currentModelSupportsTools()) {
+                            processWithFunctionCalling(imageBase64)
+                        } else {
+                            // Model cannot call tools — the web_search tool would be
+                            // silently ignored and no search would ever run.
+                            Log.i(TAG, "Model without tool support; using direct search")
+                            processWithDirectSearch(sanitizedQuery)
+                        }
                     } else {
                         streamDirect(sanitizedQuery, imageBase64)
                     }
@@ -758,6 +765,20 @@ class AssistantService : Service() {
         SettingsManager.SEARCH_EXA -> exaSearchClient.isConfigured()
         SettingsManager.SEARCH_LANGSEARCH -> langSearchClient.isConfigured()
         else -> braveSearchClient.isConfigured()
+    }
+
+    /**
+     * Whether the selected cloud model can do function/tool calling (needed
+     * for the model-initiated web_search flow). Falls back to true when the
+     * live catalog has no data yet — search availability should never be
+     * silently down because of a cold catalog.
+     */
+    private fun currentModelSupportsTools(): Boolean {
+        val modelId = settingsManager.getEffectiveModel()
+        ModelCatalog.cached()?.let { catalog ->
+            catalog.find { it.id == modelId }?.let { return it.supportsTools }
+        }
+        return true
     }
 
     private fun showSearchNotConfigured() {

@@ -94,6 +94,14 @@ object ModelCatalog {
             val modality = m.optJSONObject("architecture")?.optString("modality") ?: ""
             val supportsVision = modality.contains("image")
 
+            // Tool calling support comes from supported_parameters
+            val supportedParams = m.optJSONArray("supported_parameters")
+            val supportsTools = if (supportedParams != null) {
+                (0 until supportedParams.length()).any { supportedParams.optString(it) == "tools" }
+            } else {
+                true // unknown → assume yes, never block search on missing metadata
+            }
+
             // Description: prompt/completion token price + context length
             val contextLength = m.optJSONObject("top_provider")?.optInt("context_length", 0) ?: 0
             val pricing = m.optJSONObject("pricing")
@@ -115,7 +123,8 @@ object ModelCatalog {
                     id = id,
                     name = name,
                     description = desc,
-                    supportsVision = supportsVision
+                    supportsVision = supportsVision,
+                    supportsTools = supportsTools
                 )
             )
         }

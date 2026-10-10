@@ -86,7 +86,8 @@ class SettingsManager(context: Context) {
         val id: String, 
         val name: String, 
         val description: String,
-        val supportsVision: Boolean = false
+        val supportsVision: Boolean = false,
+        val supportsTools: Boolean = true
     )
     
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
