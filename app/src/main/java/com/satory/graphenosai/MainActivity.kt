@@ -92,6 +92,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        // Assistant gesture (ACTION_ASSIST / VOICE_COMMAND) may cold-start this
+        // activity — open the overlay immediately instead of the setup screen.
+        val launchAction = intent?.action
+        if (launchAction == Intent.ACTION_ASSIST || launchAction == Intent.ACTION_VOICE_COMMAND) {
+            launchAssistant()
+        }
+
         permissionLauncher.launch(
             arrayOf(
                 Manifest.permission.RECORD_AUDIO,
@@ -151,6 +158,17 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // ACTION_ASSIST / VOICE_COMMAND arrive here when the system assistant
+        // gesture targets this activity (launchMode=singleTop). Open the
+        // compact overlay instead of sitting on the setup screen.
+        val action = intent.action
+        if (action == Intent.ACTION_ASSIST || action == Intent.ACTION_VOICE_COMMAND) {
+            launchAssistant()
         }
     }
 
