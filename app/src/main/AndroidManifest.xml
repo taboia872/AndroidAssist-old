@@ -2,10 +2,19 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Allow discovery of TTS engine packages (required since API 30) -->
+    <!-- Allow discovery of TTS engine and speech recognition service packages
+         (required since API 30: without these <queries> declarations the app
+         cannot see the Google speech recognizer, and SpeechRecognizer fails
+         with a client/intent error even though a recognizer is installed) -->
     <queries>
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.RECOGNIZE_SPEECH" />
         </intent>
     </queries>
 
